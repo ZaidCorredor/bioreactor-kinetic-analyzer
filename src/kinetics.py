@@ -46,8 +46,42 @@ def _estimar_ventana_optima(n_puntos, orden=2):
     return max(3, w)
 
 
+def estandarizar_columnas(df):
+    """
+    Detecta automáticamente las columnas y las mapea internamente a:
+    't', 'S', 'X', 'P' para independencia total del microorganismo.
+    """
+    df_std = df.copy()
+    cols = df_std.columns.tolist()
+
+    # Mapeo flexible para aceptar formato genérico o tradicional
+    mapa = {}
+    for c in cols:
+        clow = c.lower()
+        if any(k in clow for k in ["tiempo", "time", "t (h)"]):
+            mapa[c] = "t"
+        elif any(k in clow for k in ["sustrato", "glucosa", "glucose", "substrate", "s (g/l)"]):
+            mapa[c] = "S"
+        elif any(k in clow for k in ["biomasa", "biomass", "od", "x (g/l)"]):
+            mapa[c] = "X"
+        elif any(k in clow for k in ["producto", "etanol", "ethanol", "product", "p (g/l)"]):
+            mapa[c] = "P"
+
+    # Si no coinciden por nombre, toma las primeras 4 columnas en orden canónico
+    if len(mapa) < 4 and len(cols) >= 4:
+        df_std = df_std.iloc[:, :4]
+        df_std.columns = ["t", "S", "P", "X"]
+    else:
+        df_std = df_std.rename(columns=mapa)
+
+    return df_std
+
+
 def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
-    df_res = df.copy()
+    """
+    Motor cinético universal para cualquier microorganismo, sustrato y producto.
+    """
+    df_res = estandarizar_columnas(df)
     n_puntos = len(df_res)
 
     # 1. Ajuste de ventana
@@ -63,67 +97,70 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
 
     ventana = max(3, ventana)
     
-    t = df_res["Tiempo proceso (h)"].values
-    dt = df_res["Tiempo proceso (h)"].diff().mean()
+    t = df_res["t"].values
+    dt = np.diff(t)
+    dt_medio = np.mean(dt) if len(dt) > 0 else 1.0
 
-    # 2. Perfiles suavizados con Savitzky-Golay
-    df_res["Glucosa_filtrada"] = savgol_filter(df_res["Glucosa (g/L)"], ventana, orden)
-    df_res["Etanol_filtrada"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden)
-    df_res["Biomasa_filtrada"] = savgol_filter(df_res["Biomasa (g/L)"], ventana, orden)
+    # 2. Filtrado Savitzky-Golay
+    df_res["S_filtrada"] = savgol_filter(df_res["S"], ventana, orden)
+    df_res["P_filtrada"] = savgol_filter(df_res["P"], ventana, orden)
+    df_res["X_filtrada"] = savgol_filter(df_res["X"], ventana, orden)
 
-    # =========================================================================
-    # >>> AQUÍ VAN LAS RESTRICCIONES BIOLÓGICAS (EVITA NEGATIVOS) <<<
-    # =========================================================================
-    # Concentraciones: ninguna puede ser menor a cero
-    df_res["Glucosa_filtrada"] = np.clip(df_res["Glucosa_filtrada"], a_min=0.0, a_max=None)
-    df_res["Etanol_filtrada"] = np.clip(df_res["Etanol_filtrada"], a_min=0.0, a_max=None)
-    df_res["Biomasa_filtrada"] = np.clip(df_res["Biomasa_filtrada"], a_min=1e-4, a_max=None)
+    # Restricciones biológicas (No negativos)
+    df_res["S_filtrada"] = np.clip(df_res["S_filtrada"], a_min=0.0, a_max=None)
+    df_res["P_filtrada"] = np.clip(df_res["P_filtrada"], a_min=0.0, a_max=None)
+    df_res["X_filtrada"] = np.clip(df_res["X_filtrada"], a_min=1e-4, a_max=None)
 
-    # 3. Velocidades volumétricas analíticas (deriv=1)
-    df_res["r_S"] = -savgol_filter(df_res["Glucosa (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df_res["r_P"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df_res["r_X"] = savgol_filter(df_res["Biomasa (g/L)"], ventana, orden, deriv=1, delta=dt)
+    # 3. Velocidades volumétricas
+    df_res["r_S"] = -savgol_filter(df_res["S"], ventana, orden, deriv=1, delta=dt_medio)
+    df_res["r_P"] = savgol_filter(df_res["P"], ventana, orden, deriv=1, delta=dt_medio)
+    df_res["r_X"] = savgol_filter(df_res["X"], ventana, orden, deriv=1, delta=dt_medio)
 
-    # Rectificación: si la glucosa se agotó (<= 0.05 g/L), el consumo y producción cesan
-    agotado = df_res["Glucosa_filtrada"] <= 0.05
+    # Rectificación: si el sustrato se agotó (<= 0.05 g/L), r_S y r_P cesan
+    agotado = df_res["S_filtrada"] <= 0.05
     df_res["r_S"] = np.clip(df_res["r_S"], a_min=0.0, a_max=None)
     df_res.loc[agotado, "r_S"] = 0.0
 
     df_res["r_P"] = np.clip(df_res["r_P"], a_min=0.0, a_max=None)
     df_res.loc[agotado, "r_P"] = 0.0
 
-    # 4. Velocidades específicas rectificadas
-    df_res["mu"] = np.clip(df_res["r_X"] / df_res["Biomasa_filtrada"], a_min=0.0, a_max=None)
-    df_res["q_S"] = df_res["r_S"] / df_res["Biomasa_filtrada"]
-    df_res["q_P"] = df_res["r_P"] / df_res["Biomasa_filtrada"]
-    # =========================================================================
+    # 4. Velocidades específicas
+    df_res["mu"] = np.clip(df_res["r_X"] / df_res["X_filtrada"], a_min=0.0, a_max=None)
+    df_res["q_S"] = df_res["r_S"] / df_res["X_filtrada"]
+    df_res["q_P"] = df_res["r_P"] / df_res["X_filtrada"]
 
-    # 5. Balances globales y rendimientos
-    s0 = df_res["Glucosa (g/L)"].iloc[0]
-    sf = df_res["Glucosa (g/L)"].iloc[-1]
-    p0 = df_res["Etanol (g/L)"].iloc[0]
-    p_max = df_res["Etanol (g/L)"].max()
-    x0 = df_res["Biomasa (g/L)"].iloc[0]
-    xf = df_res["Biomasa (g/L)"].iloc[-1]
+    # 5. Balances globales macroscópicos
+    s0 = df_res["S"].iloc[0]
+    sf = df_res["S"].iloc[-1]
+    p0 = df_res["P"].iloc[0]
+    p_max = df_res["P"].max()
+    x0 = df_res["X"].iloc[0]
+    xf = df_res["X"].iloc[-1]
 
     delta_s = max(s0 - sf, 1e-6)
     delta_p = max(p_max - p0, 0.0)
     delta_x = max(xf - x0, 0.0)
     delta_t = max(t[-1] - t[0], 1e-6)
 
-    mu_max_robusto, r2_mu = calcular_mu_max_semilog(
-        t,
-        df_res["Biomasa_filtrada"].values
-    )
+    mu_max_robusto, r2_mu = calcular_mu_max_semilog(t, df_res["X_filtrada"].values)
+
+    # Compatibilidad con módulos anteriores (nombres canónicos)
+    df_res["Tiempo proceso (h)"] = df_res["t"]
+    df_res["Glucosa (g/L)"] = df_res["S"]
+    df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
+    df_res["Etanol (g/L)"] = df_res["P"]
+    df_res["Etanol_filtrada"] = df_res["P_filtrada"]
+    df_res["Biomasa (g/L)"] = df_res["X"]
+    df_res["Biomasa_filtrada"] = df_res["X_filtrada"]
 
     metricas = {
         "Y_ps": round(float(delta_p / delta_s), 4),
         "Y_xs": round(float(delta_x / delta_s), 4),
         "mu_max": round(float(mu_max_robusto), 4),
         "mu_r2": round(float(r2_mu), 4),
-        "max_r_P": round(float(df_res["r_P"].max()), 4) if "r_P" in df_res.columns else 0.0,
-        "max_q_P": round(float(df_res["q_P"].max()), 4) if "q_P" in df_res.columns else 0.0,
-        "Q_X_global": round(float((xf - x0) / delta_t), 4),
+        "max_r_P": round(float(df_res["r_P"].max()), 4),
+        "max_q_P": round(float(df_res["q_P"].max()), 4),
+        "Q_X_global": round(float(delta_x / delta_t), 4),
         "ventana_usada": int(ventana)
     }
 
