@@ -78,22 +78,22 @@ if df is not None:
         t = df_procesado["Tiempo proceso (h)"]
         col_bio_filt = "Biomasa_filtrada" if "Biomasa_filtrada" in df_procesado.columns else "Biomasa (g/L)"
 
-        # ==========================================
+# ==========================================
         # PESTAÑA 1: PERFIL GLOBAL CON BIOMASA
         # ==========================================
         with tab_global:
             fig_global = make_subplots(
                 rows=2, cols=1,
                 shared_xaxes=True,
-                vertical_spacing=0.1,
+                vertical_spacing=0.15,  # Más separación entre subplots
                 subplot_titles=("Sustrato (Glucosa) y Producto (Etanol)", "Crecimiento de Biomasa (X)")
             )
 
-            # Panel 1: Glucosa y Etanol
+            # --- Panel 1: Glucosa y Etanol ---
             if "Glucosa (g/L)" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Glucosa (g/L)"], mode="markers",
-                    name="Glucosa (exp)", marker=dict(color="rgba(31, 119, 180, 0.4)", size=7)
+                    name="Glucosa (exp)", marker=dict(color="#1f77b4", opacity=0.5, size=8)
                 ), row=1, col=1)
                 
             if "Glucosa_filtrada" in df_procesado.columns:
@@ -105,7 +105,7 @@ if df is not None:
             if "Etanol (g/L)" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Etanol (g/L)"], mode="markers",
-                    name="Etanol (exp)", marker=dict(color="rgba(44, 160, 44, 0.4)", size=7)
+                    name="Etanol (exp)", marker=dict(color="#2ca02c", opacity=0.5, size=8)
                 ), row=1, col=1)
                 
             if "Etanol_filtrada" in df_procesado.columns:
@@ -114,11 +114,11 @@ if df is not None:
                     name="Etanol (filtrado)", line=dict(color="#2ca02c", width=2.5)
                 ), row=1, col=1)
 
-            # Panel 2: Biomasa
+            # --- Panel 2: Biomasa ---
             if "Biomasa (g/L)" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Biomasa (g/L)"], mode="markers",
-                    name="Biomasa (exp)", marker=dict(color="rgba(214, 39, 40, 0.4)", size=7)
+                    name="Biomasa (exp)", marker=dict(color="#d62728", opacity=0.5, size=8)
                 ), row=2, col=1)
                 
             if col_bio_filt in df_procesado.columns:
@@ -127,14 +127,22 @@ if df is not None:
                     name="Biomasa (filtrada)", line=dict(color="#d62728", width=2.5)
                 ), row=2, col=1)
 
+            # Configuración limpia de márgenes y leyenda posicionada arriba
             fig_global.update_layout(
-                height=600,
+                height=650,
                 template="plotly_white",
                 hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.08,  # Mover la leyenda por encima del título del subplot
+                    xanchor="center",
+                    x=0.5
+                ),
+                margin=dict(t=80, b=50, l=60, r=40)
             )
-            fig_global.update_yaxes(title=dict(text="Concentración (g/L)"), row=1, col=1)
-            fig_global.update_yaxes(title=dict(text="Biomasa (g/L)"), row=2, col=1)
+            fig_global.update_yaxes(title=dict(text="Concentración (g/L)"), row=1, col=1, rangemode="nonnegative")
+            fig_global.update_yaxes(title=dict(text="Biomasa (g/L)"), row=2, col=1, rangemode="nonnegative")
             fig_global.update_xaxes(title=dict(text="Tiempo de proceso (h)"), row=2, col=1)
 
             st.plotly_chart(fig_global, use_container_width=True)
