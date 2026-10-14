@@ -97,14 +97,16 @@ if df is not None:
             yaxis="y2"
         ))
 
-        # Configuración de ejes múltiples
+        # Configuración de ejes múltiples (sintaxis compatible con versiones recientes de Plotly)
         fig.update_layout(
             title="Curvas Cinéticas Suavizadas (Savitzky-Golay)",
-            xaxis=dict(title="Tiempo de proceso (h)"),
-            yaxis=dict(title="Glucosa (g/L)", titlefont=dict(color="#1f77b4"), tickfont=dict(color="#1f77b4")),
+            xaxis=dict(title=dict(text="Tiempo de proceso (h)")),
+            yaxis=dict(
+                title=dict(text="Glucosa (g/L)", font=dict(color="#1f77b4")),
+                tickfont=dict(color="#1f77b4")
+            ),
             yaxis2=dict(
-                title="Etanol (g/L)",
-                titlefont=dict(color="#2ca02c"),
+                title=dict(text="Etanol (g/L)", font=dict(color="#2ca02c")),
                 tickfont=dict(color="#2ca02c"),
                 overlaying="y",
                 side="right"
