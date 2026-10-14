@@ -19,6 +19,6 @@ cd bioreactor-kinetic-analyzer
 pip install -r requirements.txt
 python main.py
 ```
-## 🚀 Demo en Vivo
+## Demo en Vivo
 Puedes probar la aplicación interactiva aquí: 
-👉 [Bioreactor Kinetic Analyzer en Streamlit Cloud](https://tu-usuario-bioreactor-kinetic-analyzer.streamlit.app)
+[Bioreactor Kinetic Analyzer en Streamlit Cloud](https://tu-usuario-bioreactor-kinetic-analyzer.streamlit.app)
