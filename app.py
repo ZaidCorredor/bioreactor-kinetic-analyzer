@@ -7,27 +7,32 @@ from plotly.subplots import make_subplots
 from src.kinetics import calcular_cinetica
 from src.visualizer import exportar_figura_publicacion
 
-# Configuración inicial de la página
 st.set_page_config(
-    page_title="Bioreactor Kinetic Analyzer",
+    page_title="Universal Bioreactor Kinetic Analyzer",
     page_icon="🧪",
     layout="wide"
 )
 
-st.title("🧪 Bioreactor Batch Kinetic Analyzer")
+st.title("🧪 Universal Bioreactor Batch Kinetic Analyzer")
 st.markdown("""
-Analizador automatizado de perfiles de fermentación. Aplica un **filtro de Savitzky-Golay** 
-con selección inteligente de ventana para mitigar el ruido experimental y calcula rendimientos ($Y_{P/S}$, $Y_{X/S}$), 
-**velocidades volumétricas de reacción** ($r_i$) y **velocidades específicas de reacción** ($q_i$, $\mu$).
+Analizador cinético automatizado aplicable a fermentaciones y cultivos con **bacterias, levaduras o células fúngicas**. 
+Aplica un **filtro de Savitzky-Golay** con selección inteligente de ventana para mitigar el ruido experimental y calcula 
+rendimientos globales ($Y_{P/S}$, $Y_{X/S}$), **velocidades volumétricas de reacción** ($r_i$) y **velocidades específicas** ($q_i$, $\mu$).
 """)
 
-# --- BARRA LATERAL (CONFIGURACIÓN) ---
+# --- BARRA LATERAL: IDENTIDAD DEL BIOPROCESO ---
+st.sidebar.header("🔬 Identidad del Bioproceso")
+microorganismo = st.sidebar.text_input("Microorganismo / Cepa:", value="Saccharomyces cerevisiae")
+sustrato_nombre = st.sidebar.text_input("Sustrato limitante (S):", value="Glucosa")
+producto_nombre = st.sidebar.text_input("Producto de interés (P):", value="Etanol")
+
+st.sidebar.markdown("---")
 st.sidebar.header("⚙️ Configuración del Filtro")
 
 modo_auto = st.sidebar.toggle(
     "🎯 Optimización Automática de Ventana", 
     value=True, 
-    help="Calcula matemáticamente la ventana ideal según el número de datos."
+    help="Calcula matemáticamente la ventana ideal minimizando el error residual."
 )
 
 if modo_auto:
@@ -46,8 +51,10 @@ else:
 
 # --- CARGA DE ARCHIVO ---
 st.subheader("1. Carga de datos de fermentación")
+st.caption("Acepta plantillas universales con columnas: Tiempo, Sustrato, Producto, Biomasa (o Glucosa, Etanol, Biomasa).")
+
 archivo_subido = st.file_uploader(
-    "Carga un archivo Excel (.xlsx) o CSV con columnas: Tiempo proceso (h), Glucosa (g/L), Etanol (g/L), Biomasa (g/L)",
+    "Carga un archivo Excel (.xlsx) o CSV:",
     type=["xlsx", "csv"]
 )
 
@@ -76,17 +83,17 @@ if df is not None:
             auto_ventana=modo_auto
         )
 
-        st.subheader("2. Métricas y Parámetros Cinéticos Globales")
+        st.subheader(f"2. Métricas y Parámetros Cinéticos ({microorganismo})")
                 
         # Fila 1: Rendimientos y Crecimiento
         f1_col1, f1_col2, f1_col3 = st.columns(3)
-        f1_col1.metric("Rendimiento $Y_{P/S}$", f"{metricas['Y_ps']} g/g")
-        f1_col2.metric("Rendimiento $Y_{X/S}$", f"{metricas['Y_xs']} g/g")
+        f1_col1.metric(f"Rendimiento $Y_{{P/S}}$", f"{metricas['Y_ps']} g/g", help=f"g de {producto_nombre} / g de {sustrato_nombre}")
+        f1_col2.metric(f"Rendimiento $Y_{{X/S}}$", f"{metricas['Y_xs']} g/g", help=f"g de Biomasa / g de {sustrato_nombre}")
         f1_col3.metric("Vel. máx. $\mu_{\max}$", f"{metricas['mu_max']} h⁻¹", f"Ajuste R² = {metricas['mu_r2']}")
 
         # Fila 2: Productividades y Tasas volumétricas
         f2_col1, f2_col2 = st.columns(2)
-        f2_col1.metric("Vel. máx. producción ($r_{P,\max}$)", f"{metricas['max_r_P']} g/(L·h)")
+        f2_col1.metric(f"Vel. máx. producción ($r_{{P,\max}}$)", f"{metricas['max_r_P']} g/(L·h)")
         f2_col2.metric("Productividad de Biomasa ($Q_X$)", f"{metricas['Q_X_global']} g/(L·h)")
 
         if modo_auto:
@@ -96,13 +103,12 @@ if df is not None:
         st.subheader("3. Perfiles Cinéticos y Análisis de Velocidades")
 
         tab_global, tab_volumetrica, tab_especifica = st.tabs([
-            "📊 Perfil de Concentraciones (S, P, X)", 
+            f"📊 Concentraciones ({sustrato_nombre}, {producto_nombre}, X)", 
             "⚡ Velocidades Volumétricas (r)", 
             "🔬 Velocidades Específicas (q, μ)"
         ])
 
-        t = df_procesado["Tiempo proceso (h)"]
-        col_bio_filt = "Biomasa_filtrada" if "Biomasa_filtrada" in df_procesado.columns else "Biomasa (g/L)"
+        t = df_procesado["t"]
 
         # ==========================================
         # PESTAÑA 1: PERFIL DE CONCENTRACIONES (S, P, X)
@@ -112,38 +118,38 @@ if df is not None:
                 rows=2, cols=1,
                 shared_xaxes=True,
                 vertical_spacing=0.15,
-                subplot_titles=("Sustrato (Glucosa) y Producto (Etanol)", "Crecimiento de Biomasa (X)")
+                subplot_titles=(f"Sustrato ({sustrato_nombre}) y Producto ({producto_nombre})", "Crecimiento de Biomasa (X)")
             )
 
-            # Glucosa y Etanol
+            # Panel 1: Sustrato y Producto
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado["Glucosa (g/L)"], mode="markers",
-                name="Glucosa (exp)", marker=dict(color="#1f77b4", opacity=0.45, size=7)
+                x=t, y=df_procesado["S"], mode="markers",
+                name=f"{sustrato_nombre} (exp)", marker=dict(color="#1f77b4", opacity=0.45, size=7)
             ), row=1, col=1)
             
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado["Glucosa_filtrada"], mode="lines",
-                name="Glucosa (filtrada)", line=dict(color="#1f77b4", width=2.5)
+                x=t, y=df_procesado["S_filtrada"], mode="lines",
+                name=f"{sustrato_nombre} (filtrada)", line=dict(color="#1f77b4", width=2.5)
             ), row=1, col=1)
 
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado["Etanol (g/L)"], mode="markers",
-                name="Etanol (exp)", marker=dict(color="#2ca02c", opacity=0.45, size=7)
+                x=t, y=df_procesado["P"], mode="markers",
+                name=f"{producto_nombre} (exp)", marker=dict(color="#2ca02c", opacity=0.45, size=7)
             ), row=1, col=1)
             
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado["Etanol_filtrada"], mode="lines",
-                name="Etanol (filtrado)", line=dict(color="#2ca02c", width=2.5)
+                x=t, y=df_procesado["P_filtrada"], mode="lines",
+                name=f"{producto_nombre} (filtrado)", line=dict(color="#2ca02c", width=2.5)
             ), row=1, col=1)
 
-            # Biomasa
+            # Panel 2: Biomasa
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado["Biomasa (g/L)"], mode="markers",
+                x=t, y=df_procesado["X"], mode="markers",
                 name="Biomasa (exp)", marker=dict(color="#d62728", opacity=0.45, size=7)
             ), row=2, col=1)
             
             fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado[col_bio_filt], mode="lines",
+                x=t, y=df_procesado["X_filtrada"], mode="lines",
                 name="Biomasa (filtrada)", line=dict(color="#d62728", width=2.5)
             ), row=2, col=1)
 
@@ -166,21 +172,18 @@ if df is not None:
         with tab_volumetrica:
             fig_vol = go.Figure()
 
-            if "r_S" in df_procesado.columns:
-                fig_vol.add_trace(go.Scatter(
-                    x=t, y=df_procesado["r_S"],
-                    name="-r_S (Consumo de Glucosa)", line=dict(color="#1f77b4", width=2.5)
-                ))
-            if "r_P" in df_procesado.columns:
-                fig_vol.add_trace(go.Scatter(
-                    x=t, y=df_procesado["r_P"],
-                    name="r_P (Formación de Etanol)", line=dict(color="#2ca02c", width=2.5)
-                ))
-            if "r_X" in df_procesado.columns:
-                fig_vol.add_trace(go.Scatter(
-                    x=t, y=df_procesado["r_X"],
-                    name="r_X (Crecimiento Celular)", line=dict(color="#d62728", width=2.5, dash="dash")
-                ))
+            fig_vol.add_trace(go.Scatter(
+                x=t, y=df_procesado["r_S"],
+                name=f"-r_S (Consumo de {sustrato_nombre})", line=dict(color="#1f77b4", width=2.5)
+            ))
+            fig_vol.add_trace(go.Scatter(
+                x=t, y=df_procesado["r_P"],
+                name=f"r_P (Formación de {producto_nombre})", line=dict(color="#2ca02c", width=2.5)
+            ))
+            fig_vol.add_trace(go.Scatter(
+                x=t, y=df_procesado["r_X"],
+                name="r_X (Crecimiento Celular)", line=dict(color="#d62728", width=2.5, dash="dash")
+            ))
 
             fig_vol.update_layout(
                 title=dict(text="Velocidades Volumétricas de Reacción Instantáneas r_i (g/(L·h))"),
@@ -198,28 +201,24 @@ if df is not None:
         with tab_especifica:
             fig_esp = make_subplots(specs=[[{"secondary_y": True}]])
 
-            if "mu" in df_procesado.columns:
-                fig_esp.add_trace(
-                    go.Scatter(
-                        x=t, y=df_procesado["mu"],
-                        name="μ (Vel. específica crecimiento)", line=dict(color="#9467bd", width=3)
-                    ), secondary_y=False
-                )
-
-            if "q_P" in df_procesado.columns:
-                fig_esp.add_trace(
-                    go.Scatter(
-                        x=t, y=df_procesado["q_P"],
-                        name="q_P (Prod. específica Etanol)", line=dict(color="#2ca02c", width=2, dash="dot")
-                    ), secondary_y=True
-                )
-            if "q_S" in df_procesado.columns:
-                fig_esp.add_trace(
-                    go.Scatter(
-                        x=t, y=df_procesado["q_S"],
-                        name="q_S (Consumo específico Glucosa)", line=dict(color="#1f77b4", width=2, dash="dot")
-                    ), secondary_y=True
-                )
+            fig_esp.add_trace(
+                go.Scatter(
+                    x=t, y=df_procesado["mu"],
+                    name="μ (Vel. específica crecimiento)", line=dict(color="#9467bd", width=3)
+                ), secondary_y=False
+            )
+            fig_esp.add_trace(
+                go.Scatter(
+                    x=t, y=df_procesado["q_P"],
+                    name=f"q_P (Prod. específica {producto_nombre})", line=dict(color="#2ca02c", width=2, dash="dot")
+                ), secondary_y=True
+            )
+            fig_esp.add_trace(
+                go.Scatter(
+                    x=t, y=df_procesado["q_S"],
+                    name=f"q_S (Consumo específico {sustrato_nombre})", line=dict(color="#1f77b4", width=2, dash="dot")
+                ), secondary_y=True
+            )
 
             fig_esp.update_layout(
                 title=dict(text="Velocidades Específicas de Reacción Normalizadas por Biomasa (1/X · dC/dt)"),
@@ -234,7 +233,7 @@ if df is not None:
                 secondary_y=False, rangemode="nonnegative"
             )
             fig_esp.update_yaxes(
-                title=dict(text="q_P, q_S (g / (g_biomasa · h))", font=dict(color="#333333")), 
+                title=dict(text=f"q_P, q_S (g_{{{producto_nombre},{sustrato_nombre}}} / (g_biomasa · h))", font=dict(color="#333333")), 
                 secondary_y=True, rangemode="nonnegative"
             )
 
@@ -253,26 +252,23 @@ if df is not None:
                 )
             
             st.success("¡Figura vectorial y PNG generadas con éxito a 300 DPI!")
-            
-            st.image("figura_cinetica_q1.png", caption="Previsualización del panel 2x2 para publicación", use_container_width=True)
+            st.image("figura_cinetica_q1.png", caption=f"Panel editorial 2x2 para {microorganismo}", use_container_width=True)
             
             col_d1, col_d2 = st.columns(2)
-            
             with col_d1:
                 with open("figura_cinetica_q1.pdf", "rb") as f_pdf:
                     st.download_button(
                         label="📥 Descargar Vectorial (PDF)",
                         data=f_pdf,
-                        file_name="figura_cinetica_q1.pdf",
+                        file_name=f"cinetica_{microorganismo.replace(' ', '_')}_Q1.pdf",
                         mime="application/pdf"
                     )
-            
             with col_d2:
                 with open("figura_cinetica_q1.png", "rb") as f_png:
                     st.download_button(
                         label="📥 Descargar Imagen (PNG 300 DPI)",
                         data=f_png,
-                        file_name="figura_cinetica_q1.png",
+                        file_name=f"cinetica_{microorganismo.replace(' ', '_')}_300dpi.png",
                         mime="image/png"
                     )
 
@@ -283,7 +279,7 @@ if df is not None:
             st.download_button(
                 label="📥 Descargar datos cinéticos completos (CSV)",
                 data=csv,
-                file_name="cinetica_procesada.csv",
+                file_name=f"cinetica_{microorganismo.replace(' ', '_')}.csv",
                 mime="text/csv"
             )
 
