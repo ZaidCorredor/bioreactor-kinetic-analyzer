@@ -46,24 +46,28 @@ def _estimar_ventana_optima(n_puntos, orden=2):
     return max(3, w)
 
 
-def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
+def calcular_cinetica(
+    df, 
+    col_tiempo, 
+    col_sustrato, 
+    col_producto, 
+    col_biomasa, 
+    ventana=5, 
+    orden=2, 
+    auto_ventana=False
+):
+    """
+    Calcula cinéticas usando las columnas seleccionadas por el usuario en la interfaz.
+    """
     df_res = df.copy()
-    cols = df_res.columns.tolist()
 
-    # Mapeo directo por posición si tiene al menos 4 columnas
-    # Según tu Excel: 0=Tiempo, 1=Glucosa, 2=Etanol, 3=Biomasa
-    col_t = cols[0]
-    col_s = cols[1]
-    col_p = cols[2]
-    col_x = cols[3]
+    # Mapeo a variables estándar
+    df_res["t"] = pd.to_numeric(df_res[col_tiempo], errors="coerce")
+    df_res["S"] = pd.to_numeric(df_res[col_sustrato], errors="coerce")
+    df_res["P"] = pd.to_numeric(df_res[col_producto], errors="coerce")
+    df_res["X"] = pd.to_numeric(df_res[col_biomasa], errors="coerce")
 
-    # Asignación unívoca y conversión numérica garantizada
-    df_res["t"] = pd.to_numeric(df_res[col_t], errors="coerce")
-    df_res["S"] = pd.to_numeric(df_res[col_s], errors="coerce")
-    df_res["P"] = pd.to_numeric(df_res[col_p], errors="coerce")
-    df_res["X"] = pd.to_numeric(df_res[col_x], errors="coerce")
-
-    # Limpieza de nulos y orden temporal
+    # Limpiar filas con vacíos en esas variables y ordenar por tiempo
     df_res = df_res.dropna(subset=["t", "S", "P", "X"]).sort_values("t").reset_index(drop=True)
     n_puntos = len(df_res)
 
@@ -79,7 +83,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
             ventana += 1
 
     ventana = max(3, ventana)
-    
+
     t_vals = df_res["t"].values
     dt = np.diff(t_vals)
     dt_medio = np.mean(dt) if len(dt) > 0 else 1.0
@@ -89,7 +93,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     df_res["P_filtrada"] = savgol_filter(df_res["P"], ventana, orden)
     df_res["X_filtrada"] = savgol_filter(df_res["X"], ventana, orden)
 
-    # Restricciones biológicas (No negativos)
+    # Restricciones biológicas (no negativos)
     df_res["S_filtrada"] = np.clip(df_res["S_filtrada"], a_min=0.0, a_max=None)
     df_res["P_filtrada"] = np.clip(df_res["P_filtrada"], a_min=0.0, a_max=None)
     df_res["X_filtrada"] = np.clip(df_res["X_filtrada"], a_min=1e-4, a_max=None)
@@ -127,7 +131,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
 
     mu_max_robusto, r2_mu = calcular_mu_max_semilog(t_vals, df_res["X_filtrada"].values)
 
-    # Columnas canónicas añadidas para compatibilidad con visualizer.py
+    # Columnas canónicas añadidas para visualizer.py
     df_res["Tiempo proceso (h)"] = df_res["t"]
     df_res["Glucosa (g/L)"] = df_res["S"]
     df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
