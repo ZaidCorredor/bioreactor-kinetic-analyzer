@@ -48,26 +48,41 @@ def _estimar_ventana_optima(n_puntos, orden=2):
 
 def calcular_cinetica(
     df, 
-    col_tiempo, 
-    col_sustrato, 
-    col_producto, 
-    col_biomasa, 
+    col_tiempo=None, 
+    col_sustrato=None, 
+    col_producto=None, 
+    col_biomasa=None, 
     ventana=5, 
     orden=2, 
     auto_ventana=False
 ):
     """
-    Calcula cinéticas usando las columnas seleccionadas por el usuario en la interfaz.
+    Calcula cinéticas usando las columnas seleccionadas por el usuario.
+    Si no se especifican (None), toma las primeras 4 columnas por posición.
     """
     df_res = df.copy()
+    cols = df_res.columns.tolist()
 
-    # Mapeo a variables estándar
+    # Si no se pasaron columnas desde app.py, asignar por posición por defecto
+    if col_tiempo is None or col_tiempo not in cols:
+        col_tiempo = cols[0]
+    if col_sustrato is None or col_sustrato not in cols:
+        col_s_cand = [c for c in cols if any(k in c.lower() for k in ["glucosa", "glucose", "sustrato", "sub", "s"])]
+        col_sustrato = col_s_cand[0] if col_s_cand else cols[min(1, len(cols)-1)]
+    if col_producto is None or col_producto not in cols:
+        col_p_cand = [c for c in cols if any(k in c.lower() for k in ["etanol", "ethanol", "producto", "prod", "lactico", "p"])]
+        col_producto = col_p_cand[0] if col_p_cand else cols[min(2, len(cols)-1)]
+    if col_biomasa is None or col_biomasa not in cols:
+        col_x_cand = [c for c in cols if any(k in c.lower() for k in ["biomasa", "biomass", "od", "x"])]
+        col_biomasa = col_x_cand[0] if col_x_cand else cols[min(3, len(cols)-1)]
+
+    # Mapeo unívoco a variables internas
     df_res["t"] = pd.to_numeric(df_res[col_tiempo], errors="coerce")
     df_res["S"] = pd.to_numeric(df_res[col_sustrato], errors="coerce")
     df_res["P"] = pd.to_numeric(df_res[col_producto], errors="coerce")
     df_res["X"] = pd.to_numeric(df_res[col_biomasa], errors="coerce")
 
-    # Limpiar filas con vacíos en esas variables y ordenar por tiempo
+    # Limpiar nulos y ordenar por tiempo
     df_res = df_res.dropna(subset=["t", "S", "P", "X"]).sort_values("t").reset_index(drop=True)
     n_puntos = len(df_res)
 
@@ -93,7 +108,7 @@ def calcular_cinetica(
     df_res["P_filtrada"] = savgol_filter(df_res["P"], ventana, orden)
     df_res["X_filtrada"] = savgol_filter(df_res["X"], ventana, orden)
 
-    # Restricciones biológicas (no negativos)
+    # Restricciones físicas (no negativos)
     df_res["S_filtrada"] = np.clip(df_res["S_filtrada"], a_min=0.0, a_max=None)
     df_res["P_filtrada"] = np.clip(df_res["P_filtrada"], a_min=0.0, a_max=None)
     df_res["X_filtrada"] = np.clip(df_res["X_filtrada"], a_min=1e-4, a_max=None)
@@ -103,7 +118,7 @@ def calcular_cinetica(
     df_res["r_P"] = savgol_filter(df_res["P"], ventana, orden, deriv=1, delta=dt_medio)
     df_res["r_X"] = savgol_filter(df_res["X"], ventana, orden, deriv=1, delta=dt_medio)
 
-    # Rectificación: si el sustrato se agotó (<= 0.05 g/L), r_S y r_P cesan
+    # Rectificación biológica por agotamiento de sustrato
     agotado = df_res["S_filtrada"] <= 0.05
     df_res["r_S"] = np.clip(df_res["r_S"], a_min=0.0, a_max=None)
     df_res.loc[agotado, "r_S"] = 0.0
@@ -131,7 +146,7 @@ def calcular_cinetica(
 
     mu_max_robusto, r2_mu = calcular_mu_max_semilog(t_vals, df_res["X_filtrada"].values)
 
-    # Columnas canónicas añadidas para visualizer.py
+    # Alias canónicos para retrocompatibilidad con visualizer.py
     df_res["Tiempo proceso (h)"] = df_res["t"]
     df_res["Glucosa (g/L)"] = df_res["S"]
     df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
@@ -151,4 +166,5 @@ def calcular_cinetica(
         "ventana_usada": int(ventana)
     }
 
+    return df_res, metricas
     return df_res, metricas
