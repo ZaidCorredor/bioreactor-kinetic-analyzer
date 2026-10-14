@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from src.kinetics import calcular_cinetica
 
 # Configuración inicial de la página
@@ -65,7 +66,7 @@ if df is not None:
         col3.metric("Vel. máx. crecimiento ($\mu_{\max}$)", f"{metricas['mu_max']} h⁻¹")
         col4.metric("Vel. máx. formación etanol", f"{metricas['max_r_etanol']} g/L/h")
 
-        # --- 3. VISUALIZACIÓN MULTIPANEL MEDIANTE PESTAÑAS ---
+        # --- 3. VISUALIZACIÓN MULTIPANEL ---
         st.subheader("3. Perfiles Cinéticos y Análisis de Tasas")
 
         tab_global, tab_biomasa, tab_tasas = st.tabs([
@@ -75,27 +76,27 @@ if df is not None:
         ])
 
         t = df_procesado["Tiempo proceso (h)"]
+        col_bio_filt = "Biomasa_filtrada" if "Biomasa_filtrada" in df_procesado.columns else "Biomasa (g/L)"
 
         # ==========================================
         # PESTAÑA 1: PERFIL GLOBAL CON BIOMASA
         # ==========================================
         with tab_global:
-            from plotly.subplots import make_subplots
-            
-            # Usamos subplots para separar metabolitos de biomasa sin encimar escalas
             fig_global = make_subplots(
                 rows=2, cols=1,
                 shared_xaxes=True,
-                vertical_spacing=0.08,
+                vertical_spacing=0.1,
                 subplot_titles=("Sustrato (Glucosa) y Producto (Etanol)", "Crecimiento de Biomasa (X)")
             )
 
-            # --- Panel 1: Glucosa y Etanol ---
+            # Panel 1: Glucosa y Etanol
             if "Glucosa (g/L)" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Glucosa (g/L)"], mode="markers",
                     name="Glucosa (exp)", marker=dict(color="rgba(31, 119, 180, 0.4)", size=7)
                 ), row=1, col=1)
+                
+            if "Glucosa_filtrada" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Glucosa_filtrada"], mode="lines",
                     name="Glucosa (filtrada)", line=dict(color="#1f77b4", width=2.5)
@@ -106,23 +107,25 @@ if df is not None:
                     x=t, y=df_procesado["Etanol (g/L)"], mode="markers",
                     name="Etanol (exp)", marker=dict(color="rgba(44, 160, 44, 0.4)", size=7)
                 ), row=1, col=1)
+                
+            if "Etanol_filtrada" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Etanol_filtrada"], mode="lines",
                     name="Etanol (filtrado)", line=dict(color="#2ca02c", width=2.5)
                 ), row=1, col=1)
 
-            # --- Panel 2: Biomasa ---
+            # Panel 2: Biomasa
             if "Biomasa (g/L)" in df_procesado.columns:
                 fig_global.add_trace(go.Scatter(
                     x=t, y=df_procesado["Biomasa (g/L)"], mode="markers",
                     name="Biomasa (exp)", marker=dict(color="rgba(214, 39, 40, 0.4)", size=7)
                 ), row=2, col=1)
                 
-            col_bio_filt = "Biomasa_filtrada" if "Biomasa_filtrada" in df_procesado.columns else "Biomasa (g/L)"
-            fig_global.add_trace(go.Scatter(
-                x=t, y=df_procesado[col_bio_filt], mode="lines",
-                name="Biomasa (filtrada)", line=dict(color="#d62728", width=2.5)
-            ), row=2, col=1)
+            if col_bio_filt in df_procesado.columns:
+                fig_global.add_trace(go.Scatter(
+                    x=t, y=df_procesado[col_bio_filt], mode="lines",
+                    name="Biomasa (filtrada)", line=dict(color="#d62728", width=2.5)
+                ), row=2, col=1)
 
             fig_global.update_layout(
                 height=600,
@@ -142,14 +145,14 @@ if df is not None:
         with tab_biomasa:
             fig_mu = make_subplots(specs=[[{"secondary_y": True}]])
 
-            fig_mu.add_trace(
-                go.Scatter(
-                    x=t, y=df_procesado[col_bio_filt],
-                    name="Biomasa X (g/L)", line=dict(color="#d62728", width=2.5)
-                ), secondary_y=False
-            )
+            if col_bio_filt in df_procesado.columns:
+                fig_mu.add_trace(
+                    go.Scatter(
+                        x=t, y=df_procesado[col_bio_filt],
+                        name="Biomasa X (g/L)", line=dict(color="#d62728", width=2.5)
+                    ), secondary_y=False
+                )
 
-            # Si tu función calcular_cinetica devuelve 'mu' o similar:
             if "mu" in df_procesado.columns:
                 fig_mu.add_trace(
                     go.Scatter(
@@ -159,7 +162,7 @@ if df is not None:
                 )
 
             fig_mu.update_layout(
-                title=dict(text="Cinética de Crecimiento y Velocidad Específica (μ)"),
+                title=dict(text="Cinética de Crecimiento Celular y Velocidad Específica (μ)"),
                 template="plotly_white",
                 hovermode="x unified",
                 height=450
@@ -188,7 +191,7 @@ if df is not None:
                 ))
 
             fig_rates.update_layout(
-                title=dict(text="Tasas Volumétricas Instantáneas dC/dt (g/L/h)"),
+                title=dict(text="Tasas Volumétricas Instantáneas dC/dt (g/L·h)"),
                 xaxis=dict(title=dict(text="Tiempo de proceso (h)")),
                 yaxis=dict(title=dict(text="Tasa volumétrica (g/L·h)")),
                 template="plotly_white",
@@ -196,15 +199,16 @@ if df is not None:
             )
             st.plotly_chart(fig_rates, use_container_width=True)
 
-        # --- TABLA DE DATOS ---
+        # --- TABLA DE DATOS Y EXPORTACIÓN ---
         with st.expander("📋 Ver tabla completa de datos derivados y filtrados"):
             st.dataframe(df_procesado)
-
-            # Botón para descargar resultados procesados
-            csv = df_procesado.to_csv(index=False).encode('utf-8')
+            csv = df_procesado.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 Descargar datos cinéticos (CSV)",
                 data=csv,
                 file_name="cinetica_procesada.csv",
                 mime="text/csv"
             )
+
+    except Exception as e:
+        st.error(f"Error al procesar los datos: {e}")
