@@ -46,42 +46,31 @@ def _estimar_ventana_optima(n_puntos, orden=2):
     return max(3, w)
 
 
-def estandarizar_columnas(df):
-    """
-    Detecta automáticamente las columnas y las mapea internamente a:
-    't', 'S', 'X', 'P' para independencia total del microorganismo.
-    """
-    df_std = df.copy()
-    cols = df_std.columns.tolist()
-
-    # Mapeo flexible para aceptar formato genérico o tradicional
-    mapa = {}
-    for c in cols:
-        clow = c.lower()
-        if any(k in clow for k in ["tiempo", "time", "t (h)"]):
-            mapa[c] = "t"
-        elif any(k in clow for k in ["sustrato", "glucosa", "glucose", "substrate", "s (g/l)"]):
-            mapa[c] = "S"
-        elif any(k in clow for k in ["biomasa", "biomass", "od", "x (g/l)"]):
-            mapa[c] = "X"
-        elif any(k in clow for k in ["producto", "etanol", "ethanol", "product", "p (g/l)"]):
-            mapa[c] = "P"
-
-    # Si no coinciden por nombre, toma las primeras 4 columnas en orden canónico
-    if len(mapa) < 4 and len(cols) >= 4:
-        df_std = df_std.iloc[:, :4]
-        df_std.columns = ["t", "S", "P", "X"]
-    else:
-        df_std = df_std.rename(columns=mapa)
-
-    return df_std
-
-
 def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
-    """
-    Motor cinético universal para cualquier microorganismo, sustrato y producto.
-    """
-    df_res = estandarizar_columnas(df)
+    df_res = df.copy()
+    cols = df_res.columns.tolist()
+
+    # Detección ultra-flexible e insensible a mayúsculas/tildes
+    def buscar_col(palabras_clave, fallback_idx):
+        for c in cols:
+            c_clean = c.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+            if any(k in c_clean for k in palabras_clave):
+                return c
+        return cols[min(fallback_idx, len(cols) - 1)]
+
+    col_t = buscar_col(["tiempo", "time", "t", "hora", "hours"], 0)
+    col_s = buscar_col(["glucosa", "glucose", "sustrato", "substrate", "s"], 1)
+    col_x = buscar_col(["biomasa", "biomass", "od", "cel", "x"], 2)
+    col_p = buscar_col(["etanol", "ethanol", "producto", "product", "p"], 3)
+
+    # Creamos 't', 'S', 'X', 'P' garantizados para app.py
+    df_res["t"] = pd.to_numeric(df_res[col_t], errors="coerce")
+    df_res["S"] = pd.to_numeric(df_res[col_s], errors="coerce")
+    df_res["X"] = pd.to_numeric(df_res[col_x], errors="coerce")
+    df_res["P"] = pd.to_numeric(df_res[col_p], errors="coerce")
+
+    # Ordenar cronológicamente y limpiar nulos
+    df_res = df_res.dropna(subset=["t", "S", "X", "P"]).sort_values("t").reset_index(drop=True)
     n_puntos = len(df_res)
 
     # 1. Ajuste de ventana
@@ -97,8 +86,8 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
 
     ventana = max(3, ventana)
     
-    t = df_res["t"].values
-    dt = np.diff(t)
+    t_vals = df_res["t"].values
+    dt = np.diff(t_vals)
     dt_medio = np.mean(dt) if len(dt) > 0 else 1.0
 
     # 2. Filtrado Savitzky-Golay
@@ -111,7 +100,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     df_res["P_filtrada"] = np.clip(df_res["P_filtrada"], a_min=0.0, a_max=None)
     df_res["X_filtrada"] = np.clip(df_res["X_filtrada"], a_min=1e-4, a_max=None)
 
-    # 3. Velocidades volumétricas
+    # 3. Velocidades volumétricas analíticas
     df_res["r_S"] = -savgol_filter(df_res["S"], ventana, orden, deriv=1, delta=dt_medio)
     df_res["r_P"] = savgol_filter(df_res["P"], ventana, orden, deriv=1, delta=dt_medio)
     df_res["r_X"] = savgol_filter(df_res["X"], ventana, orden, deriv=1, delta=dt_medio)
@@ -129,7 +118,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     df_res["q_S"] = df_res["r_S"] / df_res["X_filtrada"]
     df_res["q_P"] = df_res["r_P"] / df_res["X_filtrada"]
 
-    # 5. Balances globales macroscópicos
+    # 5. Balances macroscópicos globales
     s0 = df_res["S"].iloc[0]
     sf = df_res["S"].iloc[-1]
     p0 = df_res["P"].iloc[0]
@@ -140,11 +129,11 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     delta_s = max(s0 - sf, 1e-6)
     delta_p = max(p_max - p0, 0.0)
     delta_x = max(xf - x0, 0.0)
-    delta_t = max(t[-1] - t[0], 1e-6)
+    delta_t = max(t_vals[-1] - t_vals[0], 1e-6)
 
-    mu_max_robusto, r2_mu = calcular_mu_max_semilog(t, df_res["X_filtrada"].values)
+    mu_max_robusto, r2_mu = calcular_mu_max_semilog(t_vals, df_res["X_filtrada"].values)
 
-    # Compatibilidad con módulos anteriores (nombres canónicos)
+    # Columnas canónicas añadidas para visualizer.py
     df_res["Tiempo proceso (h)"] = df_res["t"]
     df_res["Glucosa (g/L)"] = df_res["S"]
     df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
