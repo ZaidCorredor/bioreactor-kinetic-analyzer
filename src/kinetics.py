@@ -1,32 +1,67 @@
 import numpy as np
+import pandas as pd
 from scipy.signal import savgol_filter
 
 def calcular_cinetica(df, ventana=5, orden=2):
-    df = df.copy()
-    dt = df["Tiempo proceso (h)"].diff().mean()
+    df_res = df.copy()
+    
+    # 1. Asegurar orden cronológico
+    df_res = df_res.sort_values(by="Tiempo proceso (h)").reset_index(drop=True)
+    t = df_res["Tiempo proceso (h)"].values
+    
+    # Asegurar ventana válida (debe ser impar y menor al tamaño de datos)
+    if ventana >= len(df_res):
+        ventana = len(df_res) - 1 if len(df_res) % 2 == 0 else len(df_res)
+    if ventana < 3:
+        ventana = 3
 
-    # Filtrado de perfiles
-    df["Glucosa_filtrada"] = savgol_filter(df["Glucosa (g/L)"], ventana, orden)
-    df["Etanol_filtrada"] = savgol_filter(df["Etanol (g/L)"], ventana, orden)
-    df["Biomasa_filtrada"] = np.clip(
-        savgol_filter(df["Biomasa (g/L)"], ventana, orden), a_min=1e-3, a_max=None
-    )
+    # Paso de tiempo aproximado (o uniforme)
+    dt = np.gradient(t)
 
-    # Derivadas analíticas (velocidades)
-    df["r_glucosa (g/L/h)"] = -savgol_filter(df["Glucosa (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df["r_etanol (g/L/h)"] = savgol_filter(df["Etanol (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df["r_biomasa (g/L/h)"] = savgol_filter(df["Biomasa (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df["mu (h^-1)"] = df["r_biomasa (g/L/h)"] / df["Biomasa_filtrada"]
+    # 2. Filtrado y corrección de valores no físicos (< 0)
+    # Glucosa
+    if "Glucosa (g/L)" in df_res.columns:
+        s_filt = savgol_filter(df_res["Glucosa (g/L)"], window_length=ventana, polyorder=orden)
+        df_res["Glucosa_filtrada"] = np.clip(s_filt, 0, None)  # No permitir concentraciones < 0
+        # Tasa de consumo: -dS/dt (positiva)
+        ds_dt = np.gradient(df_res["Glucosa_filtrada"], t)
+        df_res["r_glucosa"] = np.clip(-ds_dt, 0, None)
 
-    # Resumen métricas
-    glu_cons = df["Glucosa (g/L)"].iloc[0] - df["Glucosa (g/L)"].iloc[-1]
-    et_prod = df["Etanol (g/L)"].max() - df["Etanol (g/L)"].iloc[0]
-    bio_prod = df["Biomasa (g/L)"].iloc[-1] - df["Biomasa (g/L)"].iloc[0]
+    # Etanol
+    if "Etanol (g/L)" in df_res.columns:
+        p_filt = savgol_filter(df_res["Etanol (g/L)"], window_length=ventana, polyorder=orden)
+        df_res["Etanol_filtrada"] = np.clip(p_filt, 0, None)
+        # Tasa de producción: dP/dt
+        dp_dt = np.gradient(df_res["Etanol_filtrada"], t)
+        df_res["r_etanol"] = np.clip(dp_dt, 0, None)
 
-    resumen = {
-        "Y_ps": round(et_prod / glu_cons, 4) if glu_cons > 0 else 0,
-        "Y_xs": round(bio_prod / glu_cons, 4) if glu_cons > 0 else 0,
-        "mu_max": round(df["mu (h^-1)"].max(), 4),
-        "max_r_etanol": round(df["r_etanol (g/L/h)"].max(), 4)
+    # Biomasa
+    if "Biomasa (g/L)" in df_res.columns:
+        x_filt = savgol_filter(df_res["Biomasa (g/L)"], window_length=ventana, polyorder=orden)
+        df_res["Biomasa_filtrada"] = np.clip(x_filt, 0, None)
+        # Tasa de crecimiento dx/dt y velocidad específica mu = (1/X)*(dX/dt)
+        dx_dt = np.gradient(df_res["Biomasa_filtrada"], t)
+        df_res["r_biomasa"] = np.clip(dx_dt, 0, None)
+        # Evitar división por cero
+        df_res["mu"] = np.where(df_res["Biomasa_filtrada"] > 0, df_res["r_biomasa"] / df_res["Biomasa_filtrada"], 0)
+
+    # 3. Métricas globales
+    s0 = df_res["Glucosa (g/L)"].iloc[0]
+    sf = df_res["Glucosa (g/L)"].iloc[-1]
+    p0 = df_res["Etanol (g/L)"].iloc[0]
+    pf = df_res["Etanol (g/L)"].iloc[-1]
+    x0 = df_res["Biomasa (g/L)"].iloc[0]
+    xf = df_res["Biomasa (g/L)"].iloc[-1]
+    
+    delta_s = max(s0 - sf, 1e-6)
+    y_ps = (pf - p0) / delta_s
+    y_xs = (xf - x0) / delta_s
+
+    metricas = {
+        "Y_ps": round(float(y_ps), 4),
+        "Y_xs": round(float(y_xs), 4),
+        "mu_max": round(float(df_res["mu"].max()), 4) if "mu" in df_res.columns else 0.0,
+        "max_r_etanol": round(float(df_res["r_etanol"].max()), 4) if "r_etanol" in df_res.columns else 0.0
     }
-    return df, resumen
+
+    return df_res, metricas
