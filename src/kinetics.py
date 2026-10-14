@@ -5,7 +5,10 @@ from scipy.stats import linregress
 
 
 def calcular_mu_max_semilog(t, biomasa):
-    """Calcula mu_max y R² en la fase exponencial lineal sobre ln(X)."""
+    """
+    Calcula mu_max y R² buscando el intervalo de fase exponencial
+    con mayor pendiente y mejor ajuste lineal sobre ln(X).
+    """
     ln_x = np.log(np.clip(biomasa, 1e-4, None))
     n = len(t)
     if n < 3:
@@ -33,6 +36,7 @@ def calcular_mu_max_semilog(t, biomasa):
 
 
 def _estimar_ventana_optima(n_puntos, orden=2):
+    """Ventana adecuada impar para el tamaño de muestra."""
     if n_puntos <= 5:
         w = 3
     else:
@@ -47,6 +51,13 @@ def _estimar_ventana_optima(n_puntos, orden=2):
 
 
 def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
+    """
+    Calcula cinéticas usando columnas fijas estándar:
+    - 'Tiempo proceso (h)'
+    - 'Glucosa (g/L)'
+    - 'Biomasa (g/L)'
+    - 'Etanol (g/L)'
+    """
     df_res = df.copy()
     n_puntos = len(df_res)
 
@@ -69,34 +80,21 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     # 2. Perfiles suavizados con Savitzky-Golay
     df_res["Glucosa_filtrada"] = savgol_filter(df_res["Glucosa (g/L)"], ventana, orden)
     df_res["Etanol_filtrada"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden)
-    df_res["Biomasa_filtrada"] = savgol_filter(df_res["Biomasa (g/L)"], ventana, orden)
+    df_res["Biomasa_filtrada"] = np.clip(
+        savgol_filter(df_res["Biomasa (g/L)"], ventana, orden), 
+        a_min=1e-4, 
+        a_max=None
+    )
 
-    # =========================================================================
-    # >>> AQUÍ VAN LAS RESTRICCIONES BIOLÓGICAS (EVITA NEGATIVOS) <<<
-    # =========================================================================
-    # Concentraciones: ninguna puede ser menor a cero
-    df_res["Glucosa_filtrada"] = np.clip(df_res["Glucosa_filtrada"], a_min=0.0, a_max=None)
-    df_res["Etanol_filtrada"] = np.clip(df_res["Etanol_filtrada"], a_min=0.0, a_max=None)
-    df_res["Biomasa_filtrada"] = np.clip(df_res["Biomasa_filtrada"], a_min=1e-4, a_max=None)
-
-    # 3. Velocidades volumétricas analíticas (deriv=1)
+    # 3. Velocidades volumétricas
     df_res["r_S"] = -savgol_filter(df_res["Glucosa (g/L)"], ventana, orden, deriv=1, delta=dt)
     df_res["r_P"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden, deriv=1, delta=dt)
     df_res["r_X"] = savgol_filter(df_res["Biomasa (g/L)"], ventana, orden, deriv=1, delta=dt)
 
-    # Rectificación: si la glucosa se agotó (<= 0.05 g/L), el consumo y producción cesan
-    agotado = df_res["Glucosa_filtrada"] <= 0.05
-    df_res["r_S"] = np.clip(df_res["r_S"], a_min=0.0, a_max=None)
-    df_res.loc[agotado, "r_S"] = 0.0
-
-    df_res["r_P"] = np.clip(df_res["r_P"], a_min=0.0, a_max=None)
-    df_res.loc[agotado, "r_P"] = 0.0
-
-    # 4. Velocidades específicas rectificadas
-    df_res["mu"] = np.clip(df_res["r_X"] / df_res["Biomasa_filtrada"], a_min=0.0, a_max=None)
+    # 4. Velocidades específicas
+    df_res["mu"] = df_res["r_X"] / df_res["Biomasa_filtrada"]
     df_res["q_S"] = df_res["r_S"] / df_res["Biomasa_filtrada"]
     df_res["q_P"] = df_res["r_P"] / df_res["Biomasa_filtrada"]
-    # =========================================================================
 
     # 5. Balances globales y rendimientos
     s0 = df_res["Glucosa (g/L)"].iloc[0]
