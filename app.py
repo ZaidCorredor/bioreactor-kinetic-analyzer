@@ -72,12 +72,17 @@ if df is not None:
         )
 
         st.subheader("2. Métricas y Parámetros Cinéticos Globales")
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Rendimiento $Y_{P/S}$", f"{metricas['Y_ps']} g/g")
-        col2.metric("Rendimiento $Y_{X/S}$", f"{metricas['Y_xs']} g/g")
-        col3.metric("Vel. máx. $\mu_{\max}$ (Reg. $R^2$)", f"{metricas['mu_max']} h⁻¹", f"R² = {metricas['mu_r2']}")
-        col4.metric("Vel. máx. $r_{P,\max}$", f"{metricas['max_r_P']} g/(L·h)")
-        col5.metric("Prod. Biomasa ($Q_X$)", f"{metricas['Q_X_global']} g/(L·h)")
+                
+        # Fila 1: Rendimientos y Crecimiento
+        f1_col1, f1_col2, f1_col3 = st.columns(3)
+        f1_col1.metric("Rendimiento $Y_{P/S}$", f"{metricas['Y_ps']} g/g")
+        f1_col2.metric("Rendimiento $Y_{X/S}$", f"{metricas['Y_xs']} g/g")
+        f1_col3.metric("Vel. máx. $\mu_{\max}$", f"{metricas['mu_max']} h⁻¹", f"Ajuste R² = {metricas['mu_r2']}")
+
+        # Fila 2: Productividades y Tasas volumétricas (con espacio suficiente)
+        f2_col1, f2_col2 = st.columns(2)
+        f2_col1.metric("Vel. máx. producción ($r_{P,\max}$)", f"{metricas['max_r_P']} g/(L·h)")
+        f2_col2.metric("Productividad de Biomasa ($Q_X$)", f"{metricas['Q_X_global']} g/(L·h)")
 
         if modo_auto:
             st.caption(f"ℹ️ *Ventana óptima aplicada automáticamente: **{metricas['ventana_usada']} puntos**.*")
