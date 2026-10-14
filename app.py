@@ -20,41 +20,10 @@ Aplica un **filtro de Savitzky-Golay** con selección inteligente de ventana par
 rendimientos globales ($Y_{P/S}$, $Y_{X/S}$), **velocidades volumétricas de reacción** ($r_i$) y **velocidades específicas** ($q_i$, $\mu$).
 """)
 
-# --- BARRA LATERAL: IDENTIDAD DEL BIOPROCESO ---
-st.sidebar.header("🔬 Identidad del Bioproceso")
-microorganismo = st.sidebar.text_input("Microorganismo / Cepa:", value="Saccharomyces cerevisiae")
-sustrato_nombre = st.sidebar.text_input("Sustrato limitante (S):", value="Glucosa")
-producto_nombre = st.sidebar.text_input("Producto de interés (P):", value="Etanol")
-
-st.sidebar.markdown("---")
-st.sidebar.header("⚙️ Configuración del Filtro")
-
-modo_auto = st.sidebar.toggle(
-    "🎯 Optimización Automática de Ventana", 
-    value=True, 
-    help="Calcula matemáticamente la ventana ideal minimizando el error residual."
-)
-
-if modo_auto:
-    st.sidebar.info("Modo Automático activo: El algoritmo detecta el tamaño óptimo de ventana.")
-    ventana_sel = None
-    orden_sel = 2
-else:
-    ventana_sel = st.sidebar.slider(
-        "Tamaño de ventana (puntos, impar):", 
-        min_value=3, max_value=15, value=5, step=2
-    )
-    orden_sel = st.sidebar.slider(
-        "Orden del polinomio:", 
-        min_value=1, max_value=4, value=2, step=1
-    )
-
 # --- CARGA DE ARCHIVO ---
 st.subheader("1. Carga de datos de fermentación")
-st.caption("Acepta plantillas universales con columnas: Tiempo, Sustrato, Producto, Biomasa (o Glucosa, Etanol, Biomasa).")
-
 archivo_subido = st.file_uploader(
-    "Carga un archivo Excel (.xlsx) o CSV:",
+    "Carga un archivo Excel (.xlsx) o CSV con tus datos experimentales:",
     type=["xlsx", "csv"]
 )
 
@@ -73,17 +42,85 @@ elif usar_muestra:
     except Exception:
         st.info("Sube tu archivo .xlsx o .csv arriba para comenzar el análisis.")
 
-# --- PROCESAMIENTO Y VISUALIZACIÓN ---
+# --- BARRA LATERAL (CONFIGURACIÓN) ---
 if df is not None:
+    cols = df.columns.tolist()
+
+    # Función inteligente para preseleccionar columnas por palabras clave completas
+    def detectar_indice(palabras_clave, fallback_idx):
+        for idx, col_name in enumerate(cols):
+            nombre_limpio = col_name.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+            # Excluir 'tiempo' si no estamos buscando tiempo
+            if "tiempo" not in palabras_clave and any(t in nombre_limpio for t in ["tiempo", "time"]):
+                continue
+            for palabra in palabras_clave:
+                if palabra in nombre_limpio:
+                    return idx
+        return min(fallback_idx, len(cols) - 1)
+
+    idx_sug_t = detectar_indice(["tiempo", "time", "hora", "hours"], fallback_idx=0)
+    idx_sug_s = detectar_indice(["glucosa", "glucose", "sustrato", "substrate", "glicerol", "lactosa", "sacarosa", "xilosa"], fallback_idx=1)
+    idx_sug_p = detectar_indice(["etanol", "ethanol", "lactico", "lactato", "lactic", "citrico", "citric", "producto", "product", "acetico"], fallback_idx=2)
+    idx_sug_x = detectar_indice(["biomasa", "biomass", "od600", "od", "cel", "levadura", "bacteria"], fallback_idx=3)
+
+    st.sidebar.header("🔬 Identidad del Bioproceso")
+    microorganismo = st.sidebar.text_input("Microorganismo / Cepa:", value="Saccharomyces cerevisiae")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("📋 Selección de Columnas")
+    st.sidebar.caption("Verifica o ajusta qué columna de tu archivo corresponde a cada variable:")
+
+    col_t_sel = st.sidebar.selectbox("⏱️ Columna de Tiempo (h):", cols, index=idx_sug_t)
+    col_s_sel = st.sidebar.selectbox("🍬 Sustrato Limitante [S]:", cols, index=idx_sug_s)
+    col_p_sel = st.sidebar.selectbox("🧪 Producto de Interés [P]:", cols, index=idx_sug_p)
+    col_x_sel = st.sidebar.selectbox("🌱 Biomasa Celular [X]:", cols, index=idx_sug_x)
+
+    # Validar que no se hayan seleccionado columnas repetidas
+    cols_seleccionadas = [col_t_sel, col_s_sel, col_p_sel, col_x_sel]
+    if len(set(cols_seleccionadas)) < 4:
+        st.sidebar.error("⚠️ Has asignado la misma columna a dos variables diferentes. Por favor revisa los selectores.")
+
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Configuración del Filtro")
+
+    modo_auto = st.sidebar.toggle(
+        "🎯 Optimización Automática de Ventana", 
+        value=True, 
+        help="Calcula matemáticamente la ventana ideal minimizando el error residual."
+    )
+
+    if modo_auto:
+        st.sidebar.info("Modo Automático activo: El algoritmo detecta el tamaño óptimo de ventana.")
+        ventana_sel = None
+        orden_sel = 2
+    else:
+        ventana_sel = st.sidebar.slider(
+            "Tamaño de ventana (puntos, impar):", 
+            min_value=3, max_value=15, value=5, step=2
+        )
+        orden_sel = st.sidebar.slider(
+            "Orden del polinomio:", 
+            min_value=1, max_value=4, value=2, step=1
+        )
+
+    # Nombres visuales limpios para títulos y leyendas
+    sustrato_nombre = col_s_sel.split("(")[0].strip()
+    producto_nombre = col_p_sel.split("(")[0].strip()
+
+    # --- PROCESAMIENTO Y VISUALIZACIÓN ---
     try:
         df_procesado, metricas = calcular_cinetica(
             df, 
+            col_tiempo=col_t_sel,
+            col_sustrato=col_s_sel,
+            col_producto=col_p_sel,
+            col_biomasa=col_x_sel,
             ventana=ventana_sel, 
             orden=orden_sel, 
             auto_ventana=modo_auto
         )
 
-        st.subheader(f"2. Métricas y Parámetros Cinéticos ({microorganismo})")
+        st.subheader(f"2. Parámetros Cinéticos Globales ({microorganismo})")
                 
         # Fila 1: Rendimientos y Crecimiento
         f1_col1, f1_col2, f1_col3 = st.columns(3)
@@ -118,7 +155,7 @@ if df is not None:
                 rows=2, cols=1,
                 shared_xaxes=True,
                 vertical_spacing=0.15,
-                subplot_titles=(f"Sustrato ({sustrato_nombre}) y Producto ({producto_nombre})", "Crecimiento de Biomasa (X)")
+                subplot_titles=(f"Sustrato ({sustrato_nombre}) y Producto ({producto_nombre})", "Crecimiento de Biomasa Celular (X)")
             )
 
             # Panel 1: Sustrato y Producto
@@ -162,7 +199,7 @@ if df is not None:
             )
             fig_global.update_yaxes(title=dict(text="Concentración (g/L)"), row=1, col=1, rangemode="nonnegative")
             fig_global.update_yaxes(title=dict(text="Biomasa (g/L)"), row=2, col=1, rangemode="nonnegative")
-            fig_global.update_xaxes(title=dict(text="Tiempo de proceso (h)"), row=2, col=1)
+            fig_global.update_xaxes(title=dict(text=f"Tiempo ({col_t_sel})"), row=2, col=1)
 
             st.plotly_chart(fig_global, use_container_width=True)
 
@@ -187,7 +224,7 @@ if df is not None:
 
             fig_vol.update_layout(
                 title=dict(text="Velocidades Volumétricas de Reacción Instantáneas r_i (g/(L·h))"),
-                xaxis=dict(title=dict(text="Tiempo de proceso (h)")),
+                xaxis=dict(title=dict(text=f"Tiempo ({col_t_sel})")),
                 yaxis=dict(title=dict(text="Velocidad volumétrica (g/(L·h))"), rangemode="nonnegative"),
                 template="plotly_white",
                 hovermode="x unified",
@@ -222,7 +259,7 @@ if df is not None:
 
             fig_esp.update_layout(
                 title=dict(text="Velocidades Específicas de Reacción Normalizadas por Biomasa (1/X · dC/dt)"),
-                xaxis=dict(title=dict(text="Tiempo de proceso (h)")),
+                xaxis=dict(title=dict(text=f"Tiempo ({col_t_sel})")),
                 template="plotly_white",
                 hovermode="x unified",
                 height=520,
@@ -233,7 +270,7 @@ if df is not None:
                 secondary_y=False, rangemode="nonnegative"
             )
             fig_esp.update_yaxes(
-                title=dict(text=f"q_P, q_S (g_{{{producto_nombre},{sustrato_nombre}}} / (g_biomasa · h))", font=dict(color="#333333")), 
+                title=dict(text="q_P, q_S (g / (g_biomasa · h))", font=dict(color="#333333")), 
                 secondary_y=True, rangemode="nonnegative"
             )
 
@@ -260,7 +297,7 @@ if df is not None:
                     st.download_button(
                         label="📥 Descargar Vectorial (PDF)",
                         data=f_pdf,
-                        file_name=f"cinetica_{microorganismo.replace(' ', '_')}_Q1.pdf",
+                        file_name=f"cinetica_{sustrato_nombre}_{producto_nombre}_Q1.pdf",
                         mime="application/pdf"
                     )
             with col_d2:
@@ -268,7 +305,7 @@ if df is not None:
                     st.download_button(
                         label="📥 Descargar Imagen (PNG 300 DPI)",
                         data=f_png,
-                        file_name=f"cinetica_{microorganismo.replace(' ', '_')}_300dpi.png",
+                        file_name=f"cinetica_{sustrato_nombre}_{producto_nombre}_300dpi.png",
                         mime="image/png"
                     )
 
