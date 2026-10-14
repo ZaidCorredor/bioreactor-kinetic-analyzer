@@ -4,6 +4,10 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from src.kinetics import calcular_cinetica
+import plotly.graph_objects as go
+
+from src.kinetics import calcular_cinetica
+from src.visualizer import exportar_figura_publicacion  
 
 # Configuración inicial de la página
 st.set_page_config(
@@ -241,16 +245,43 @@ if df is not None:
 
             st.plotly_chart(fig_esp, use_container_width=True)
 
-        #  --- GRAFICAS Y DESCARGA ---
+        # --- GRAFICAS Y DESCARGA PARA PUBLICACIÓN ---
+        st.subheader("4. Exportación para Publicación Científica (Q1)")
+        
         if st.button("🖼️ Generar figura para publicación (PDF / PNG 300 DPI)"):
-            exportar_figura_publicacion(df_procesado, output_path="figura_q1", formatos=["png", "pdf"], dpi=300)
-            with open("figura_q1.pdf", "rb") as f:
-                st.download_button(
-                    label="📥 Descargar Figura Vectorial (PDF Q1)",
-                    data=f,
-                    file_name="figura_cinetica_Q1.pdf",
-                    mime="application/pdf"
+            with st.spinner("Generando panel multipanel de alta resolución..."):
+                archivos_generados = exportar_figura_publicacion(
+                    df_procesado, 
+                    output_path="figura_cinetica_q1", 
+                    formatos=("png", "pdf"), 
+                    dpi=300
                 )
+            
+            st.success("¡Figura vectorial y PNG generadas con éxito a 300 DPI!")
+            
+            # Previsualización del PNG generado directamente en la app
+            st.image("figura_cinetica_q1.png", caption="Previsualización del panel 2x2 para publicación", use_container_width=True)
+            
+            # Botones de descarga directa
+            col_d1, col_d2 = st.columns(2)
+            
+            with col_d1:
+                with open("figura_cinetica_q1.pdf", "rb") as f_pdf:
+                    st.download_button(
+                        label="📥 Descargar Vectorial (PDF)",
+                        data=f_pdf,
+                        file_name="figura_cinetica_q1.pdf",
+                        mime="application/pdf"
+                    )
+            
+            with col_d2:
+                with open("figura_cinetica_q1.png", "rb") as f_png:
+                    st.download_button(
+                        label="📥 Descargar Imagen (PNG 300 DPI)",
+                        data=f_png,
+                        file_name="figura_cinetica_q1.png",
+                        mime="image/png"
+                    )
         # --- TABLA Y DESCARGA ---
         with st.expander("📋 Ver tabla completa con r_i, q_i y concentraciones filtradas"):
             st.dataframe(df_procesado)
