@@ -15,20 +15,29 @@ st.set_page_config(
 st.title("🧪 Bioreactor Batch Kinetic Analyzer")
 st.markdown("""
 Analizador automatizado de perfiles de fermentación. Aplica un **filtro de Savitzky-Golay** 
-para mitigar el ruido experimental y calcula rendimientos ($Y_{P/S}$, $Y_{X/S}$), 
+con selección inteligente de ventana para mitigar el ruido experimental y calcula rendimientos ($Y_{P/S}$, $Y_{X/S}$), 
 **velocidades volumétricas de reacción** ($r_i$) y **velocidades específicas de reacción** ($q_i$, $\mu$).
 """)
 
 # --- BARRA LATERAL (CONFIGURACIÓN) ---
-st.sidebar.header("⚙️ Parámetros del Filtro")
-ventana = st.sidebar.slider(
-    "Tamaño de ventana (puntos, impar):", 
-    min_value=3, max_value=15, value=5, step=2
-)
-orden = st.sidebar.slider(
-    "Orden del polinomio:", 
-    min_value=1, max_value=4, value=2, step=1
-)
+st.sidebar.header("⚙️ Configuración del Filtro")
+
+modo_auto = st.sidebar.toggle("🎯 Optimización Automática de Ventana", value=True, 
+                               help="Calcula matemáticamente la ventana ideal minimizando el error residual.")
+
+if modo_auto:
+    st.sidebar.info("Modo Automático activo: El algoritmo detecta el tamaño óptimo de ventana según el número y densidad de tus datos.")
+    ventana_sel = None
+    orden_sel = 2
+else:
+    ventana_sel = st.sidebar.slider(
+        "Tamaño de ventana (puntos, impar):", 
+        min_value=3, max_value=15, value=5, step=2
+    )
+    orden_sel = st.sidebar.slider(
+        "Orden del polinomio:", 
+        min_value=1, max_value=4, value=2, step=1
+    )
 
 # --- CARGA DE ARCHIVO ---
 st.subheader("1. Carga de datos de fermentación")
@@ -55,14 +64,23 @@ elif usar_muestra:
 # --- PROCESAMIENTO Y VISUALIZACIÓN ---
 if df is not None:
     try:
-        df_procesado, metricas = calcular_cinetica(df, ventana=ventana, orden=orden)
+        df_procesado, metricas = calcular_cinetica(
+            df, 
+            ventana=ventana_sel, 
+            orden=orden_sel, 
+            auto_ventana=modo_auto
+        )
 
         st.subheader("2. Métricas y Parámetros Cinéticos Globales")
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Rendimiento $Y_{P/S}$", f"{metricas['Y_ps']} g/g")
         col2.metric("Rendimiento $Y_{X/S}$", f"{metricas['Y_xs']} g/g")
-        col3.metric("Vel. máx. crecimiento ($\mu_{\max}$)", f"{metricas['mu_max']} h⁻¹")
-        col4.metric("Vel. máx. formación etanol ($r_{P,\max}$)", f"{metricas['max_r_P']} g/(L·h)")
+        col3.metric("Vel. máx. $\mu_{\max}$ (Reg. $R^2$)", f"{metricas['mu_max']} h⁻¹", f"R² = {metricas['mu_r2']}")
+        col4.metric("Vel. máx. $r_{P,\max}$", f"{metricas['max_r_P']} g/(L·h)")
+        col5.metric("Prod. Biomasa ($Q_X$)", f"{metricas['Q_X_global']} g/(L·h)")
+
+        if modo_auto:
+            st.caption(f"ℹ️ *Ventana óptima aplicada automáticamente: **{metricas['ventana_usada']} puntos**.*")
 
         # --- 3. VISUALIZACIÓN MULTIPANEL ---
         st.subheader("3. Perfiles Cinéticos y Análisis de Velocidades")
@@ -129,13 +147,7 @@ if df is not None:
                 height=650,
                 template="plotly_white",
                 hovermode="x unified",
-                legend=dict(
-                    orientation="h",
-                    yanchor="bottom",
-                    y=1.06,
-                    xanchor="center",
-                    x=0.5
-                ),
+                legend=dict(orientation="h", yanchor="bottom", y=1.06, xanchor="center", x=0.5),
                 margin=dict(t=80, b=50, l=60, r=40)
             )
             fig_global.update_yaxes(title=dict(text="Concentración (g/L)"), row=1, col=1, rangemode="nonnegative")
@@ -182,7 +194,6 @@ if df is not None:
         with tab_especifica:
             fig_esp = make_subplots(specs=[[{"secondary_y": True}]])
 
-            # μ en eje primario
             if "mu" in df_procesado.columns:
                 fig_esp.add_trace(
                     go.Scatter(
@@ -191,7 +202,6 @@ if df is not None:
                     ), secondary_y=False
                 )
 
-            # q_P y q_S en eje secundario
             if "q_P" in df_procesado.columns:
                 fig_esp.add_trace(
                     go.Scatter(
@@ -225,6 +235,7 @@ if df is not None:
             )
 
             st.plotly_chart(fig_esp, use_container_width=True)
+
         #  --- GRAFICAS Y DESCARGA ---
         if st.button("🖼️ Generar figura para publicación (PDF / PNG 300 DPI)"):
             exportar_figura_publicacion(df_procesado, output_path="figura_q1", formatos=["png", "pdf"], dpi=300)
@@ -235,7 +246,6 @@ if df is not None:
                     file_name="figura_cinetica_Q1.pdf",
                     mime="application/pdf"
                 )
-
         # --- TABLA Y DESCARGA ---
         with st.expander("📋 Ver tabla completa con r_i, q_i y concentraciones filtradas"):
             st.dataframe(df_procesado)
@@ -246,8 +256,7 @@ if df is not None:
                 file_name="cinetica_procesada.csv",
                 mime="text/csv"
             )
-            from src.visualizer import exportar_figura_publicacion
-            
 
     except Exception as e:
         st.error(f"Error al procesar los datos: {e}")
+
