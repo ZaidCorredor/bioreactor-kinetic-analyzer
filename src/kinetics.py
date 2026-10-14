@@ -50,27 +50,21 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     df_res = df.copy()
     cols = df_res.columns.tolist()
 
-    # Detección ultra-flexible e insensible a mayúsculas/tildes
-    def buscar_col(palabras_clave, fallback_idx):
-        for c in cols:
-            c_clean = c.lower().replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
-            if any(k in c_clean for k in palabras_clave):
-                return c
-        return cols[min(fallback_idx, len(cols) - 1)]
+    # Mapeo directo por posición si tiene al menos 4 columnas
+    # Según tu Excel: 0=Tiempo, 1=Glucosa, 2=Etanol, 3=Biomasa
+    col_t = cols[0]
+    col_s = cols[1]
+    col_p = cols[2]
+    col_x = cols[3]
 
-    col_t = buscar_col(["tiempo", "time", "t", "hora", "hours"], 0)
-    col_s = buscar_col(["glucosa", "glucose", "sustrato", "substrate", "s"], 1)
-    col_x = buscar_col(["biomasa", "biomass", "od", "cel", "x"], 2)
-    col_p = buscar_col(["etanol", "ethanol", "producto", "product", "p"], 3)
-
-    # Creamos 't', 'S', 'X', 'P' garantizados para app.py
+    # Asignación unívoca y conversión numérica garantizada
     df_res["t"] = pd.to_numeric(df_res[col_t], errors="coerce")
     df_res["S"] = pd.to_numeric(df_res[col_s], errors="coerce")
-    df_res["X"] = pd.to_numeric(df_res[col_x], errors="coerce")
     df_res["P"] = pd.to_numeric(df_res[col_p], errors="coerce")
+    df_res["X"] = pd.to_numeric(df_res[col_x], errors="coerce")
 
-    # Ordenar cronológicamente y limpiar nulos
-    df_res = df_res.dropna(subset=["t", "S", "X", "P"]).sort_values("t").reset_index(drop=True)
+    # Limpieza de nulos y orden temporal
+    df_res = df_res.dropna(subset=["t", "S", "P", "X"]).sort_values("t").reset_index(drop=True)
     n_puntos = len(df_res)
 
     # 1. Ajuste de ventana
@@ -118,7 +112,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
     df_res["q_S"] = df_res["r_S"] / df_res["X_filtrada"]
     df_res["q_P"] = df_res["r_P"] / df_res["X_filtrada"]
 
-    # 5. Balances macroscópicos globales
+    # 5. Balances globales
     s0 = df_res["S"].iloc[0]
     sf = df_res["S"].iloc[-1]
     p0 = df_res["P"].iloc[0]
@@ -133,7 +127,7 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
 
     mu_max_robusto, r2_mu = calcular_mu_max_semilog(t_vals, df_res["X_filtrada"].values)
 
-    # Columnas canónicas añadidas para visualizer.py
+    # Columnas canónicas añadidas para compatibilidad con visualizer.py
     df_res["Tiempo proceso (h)"] = df_res["t"]
     df_res["Glucosa (g/L)"] = df_res["S"]
     df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
