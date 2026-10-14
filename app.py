@@ -236,6 +236,19 @@ if df is not None:
                 file_name="cinetica_procesada.csv",
                 mime="text/csv"
             )
+            from src.visualizer import exportar_figura_publicacion
+
+        #  --- GRAFICAS Y DESCARGA ---
+        if st.button("🖼️ Generar figura para publicación (PDF / PNG 300 DPI)"):
+            exportar_figura_publicacion(df_procesado, output_path="figura_q1", formatos=["png", "pdf"], dpi=300)
+            with open("figura_q1.pdf", "rb") as f:
+                st.download_button(
+                    label="📥 Descargar Figura Vectorial (PDF Q1)",
+                    data=f,
+                    file_name="figura_cinetica_Q1.pdf",
+                    mime="application/pdf"
+                )
+            
 
     except Exception as e:
         st.error(f"Error al procesar los datos: {e}")
