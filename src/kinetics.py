@@ -50,18 +50,23 @@ def _estimar_ventana_optima(n_puntos, orden=2):
     return max(3, w)
 
 
-def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
+def calcular_cinetica(
+    df,
+    col_tiempo="Tiempo proceso (h)",
+    col_sustrato="Glucosa (g/L)",
+    col_biomasa="Biomasa (g/L)",
+    col_producto="Etanol (g/L)",
+    ventana=5,
+    orden=2,
+    auto_ventana=False
+):
     """
-    Calcula cinéticas usando columnas fijas estándar:
-    - 'Tiempo proceso (h)'
-    - 'Glucosa (g/L)'
-    - 'Biomasa (g/L)'
-    - 'Etanol (g/L)'
+    Calcula cinéticas aceptando mapeo dinámico de columnas desde app.py
+    y manteniendo retrocompatibilidad con los nombres estándar.
     """
     df_res = df.copy()
     n_puntos = len(df_res)
 
-    # 1. Ajuste de ventana
     if auto_ventana or ventana is None:
         ventana = _estimar_ventana_optima(n_puntos, orden=orden)
     else:
@@ -74,35 +79,34 @@ def calcular_cinetica(df, ventana=5, orden=2, auto_ventana=False):
 
     ventana = max(3, ventana)
     
-    t = df_res["Tiempo proceso (h)"].values
-    dt = df_res["Tiempo proceso (h)"].diff().mean()
+    t = df_res[col_tiempo].values
+    dt = df_res[col_tiempo].diff().mean()
 
-    # 2. Perfiles suavizados con Savitzky-Golay
-    df_res["Glucosa_filtrada"] = savgol_filter(df_res["Glucosa (g/L)"], ventana, orden)
-    df_res["Etanol_filtrada"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden)
+    df_res["S_filtrada"] = savgol_filter(df_res[col_sustrato], ventana, orden)
+    df_res["P_filtrada"] = savgol_filter(df_res[col_producto], ventana, orden)
     df_res["Biomasa_filtrada"] = np.clip(
-        savgol_filter(df_res["Biomasa (g/L)"], ventana, orden), 
+        savgol_filter(df_res[col_biomasa], ventana, orden), 
         a_min=1e-4, 
         a_max=None
     )
 
-    # 3. Velocidades volumétricas
-    df_res["r_S"] = -savgol_filter(df_res["Glucosa (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df_res["r_P"] = savgol_filter(df_res["Etanol (g/L)"], ventana, orden, deriv=1, delta=dt)
-    df_res["r_X"] = savgol_filter(df_res["Biomasa (g/L)"], ventana, orden, deriv=1, delta=dt)
+    df_res["Glucosa_filtrada"] = df_res["S_filtrada"]
+    df_res["Etanol_filtrada"] = df_res["P_filtrada"]
 
-    # 4. Velocidades específicas
+    df_res["r_S"] = -savgol_filter(df_res[col_sustrato], ventana, orden, deriv=1, delta=dt)
+    df_res["r_P"] = savgol_filter(df_res[col_producto], ventana, orden, deriv=1, delta=dt)
+    df_res["r_X"] = savgol_filter(df_res[col_biomasa], ventana, orden, deriv=1, delta=dt)
+
     df_res["mu"] = df_res["r_X"] / df_res["Biomasa_filtrada"]
     df_res["q_S"] = df_res["r_S"] / df_res["Biomasa_filtrada"]
     df_res["q_P"] = df_res["r_P"] / df_res["Biomasa_filtrada"]
 
-    # 5. Balances globales y rendimientos
-    s0 = df_res["Glucosa (g/L)"].iloc[0]
-    sf = df_res["Glucosa (g/L)"].iloc[-1]
-    p0 = df_res["Etanol (g/L)"].iloc[0]
-    p_max = df_res["Etanol (g/L)"].max()
-    x0 = df_res["Biomasa (g/L)"].iloc[0]
-    xf = df_res["Biomasa (g/L)"].iloc[-1]
+    s0 = df_res[col_sustrato].iloc[0]
+    sf = df_res[col_sustrato].iloc[-1]
+    p0 = df_res[col_producto].iloc[0]
+    p_max = df_res[col_producto].max()
+    x0 = df_res[col_biomasa].iloc[0]
+    xf = df_res[col_biomasa].iloc[-1]
 
     delta_s = max(s0 - sf, 1e-6)
     delta_p = max(p_max - p0, 0.0)
